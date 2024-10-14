@@ -9,6 +9,9 @@ db 작성 완료 (schema.sql 코드와 동일) ----- 내용 보완/수정 필요
 
 
 
+
+
+
 user - 사용자 회원가입 & 로그인 정보 
         (Id, userEmail, userNickname, password, JWT token)
         
