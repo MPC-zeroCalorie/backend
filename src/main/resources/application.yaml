@@ -1,0 +1,59 @@
+spring:
+    application:
+        name: zeroCalorie
+    output:
+        ansi:
+            enabled: always
+    servlet:
+        multipart:
+            max-file-size: 10MB
+            max-request-size: 10MB
+
+    datasource:
+        driver-class-name: com.mysql.cj.jdbc.Driver
+        url: jdbc:mysql://localhost:3306/zerocalorie?useSSL=false&serverTimezone=Asia/Seoul&characterEncoding=UTF-8&allowPublicKeyRetrieval=true
+        username: root
+        password: 1234 # 본인 비밀번호로 바꿔서 실행
+
+        hikari:
+            maximum-pool-size: 5
+            minimum-idle: 5
+            connection-timeout: 30000
+            idle-timeout: 60000
+            max-lifetime: 180000
+            pool-name: springHikariCP
+
+    messages:
+        encoding: UTF-8
+
+    jpa:
+        open-in-view: false
+        show-sql: true
+        hibernate:
+            ddl-auto: update
+        properties:
+            hibernate:
+                format_sql: true
+                dialect: org.hibernate.dialect.MySQL8Dialect
+                use_sql_comments: true
+
+    web:
+        resources:
+            static-locations: classpath:/static/
+            cache:
+                period: 0
+
+image:
+    upload:
+        dir: /path/to/upload/directory # 이미지 업로드 경로
+    access:
+        url: http://~~~~~~~~~~:8080/foodImages # 이미지 접근 URL
+
+server:
+    port: 8080
+    servlet:
+        encoding:
+            charset: UTF-8
+            enabled: true
+            force: true
+            force-request: true
