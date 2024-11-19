@@ -1,0 +1,148 @@
+const functions = require('firebase-functions');
+const admin = require('firebase-admin');
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');require('dotenv').config();
+const JWT_SECRET = process.env.JWT_SECRET;
+
+
+admin.initializeApp();
+const db = admin.firestore();
+
+// // JWT 비밀 키 가져오기
+// const JWT_SECRET = functions.config().jwt.secret;
+
+// 저속 노화 점수 계산 함수
+const calculateAgingScore = (nutrients) => {
+    let score = 0;
+    if (nutrients.vitaminC > 50) score += 10;
+    if (nutrients.protein > 20) score += 20;
+    if (nutrients.totalDietaryFiber > 10) score += 15;
+    if (nutrients.energy < 500) score += 5; // 칼로리가 적으면 추가 점수
+    return score;
+};
+
+// 사용자 회원가입
+exports.signup = functions.https.onRequest(async (req, res) => {
+    const { email, password, name } = req.body;
+
+    try {
+        const userSnapshot = await db.collection('users').where('email', '==', email).get();
+        if (!userSnapshot.empty) {
+            return res.status(400).send({ message: '이미 존재하는 이메일입니다.' });
+        }
+
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const userRef = await db.collection('users').add({
+            email,
+            password: hashedPassword,
+            name,
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        res.status(201).send({ message: '회원가입 성공', userId: userRef.id });
+    } catch (error) {
+        console.error('회원가입 오류:', error);
+        res.status(500).send({ message: '회원가입 실패', error });
+    }
+});
+
+// 사용자 로그인
+exports.login = functions.https.onRequest(async (req, res) => {
+    const { email, password } = req.body;
+
+    try {
+        const userSnapshot = await db.collection('users').where('email', '==', email).get();
+        if (userSnapshot.empty) {
+            return res.status(404).send({ message: '사용자를 찾을 수 없습니다.' });
+        }
+
+        const user = userSnapshot.docs[0].data();
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) {
+            return res.status(401).send({ message: '비밀번호가 일치하지 않습니다.' });
+        }
+
+        const token = jwt.sign({ userId: userSnapshot.docs[0].id }, JWT_SECRET, { expiresIn: '1h' });
+        await db.collection('sessions').add({
+            token,
+            userId: userSnapshot.docs[0].id,
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        res.status(200).send({ message: '로그인 성공', token });
+    } catch (error) {
+        console.error('로그인 오류:', error);
+        res.status(500).send({ message: '로그인 실패', error });
+    }
+});
+
+// 저속 노화 점수 저장 및 계산
+exports.saveMealAndCalculateScore = functions.https.onRequest(async (req, res) => {
+    const { token, date, mealType, foods } = req.body;
+
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const userId = decoded.userId;
+
+        // 영양소 데이터 처리
+        let totalNutrients = {
+            vitaminC: 0,
+            protein: 0,
+            totalDietaryFiber: 0,
+            energy: 0
+        };
+
+        foods.forEach(food => {
+            totalNutrients.vitaminC += food.vitaminC || 0;
+            totalNutrients.protein += food.protein || 0;
+            totalNutrients.totalDietaryFiber += food.totalDietaryFiber || 0;
+            totalNutrients.energy += food.energy || 0;
+        });
+
+        const score = calculateAgingScore(totalNutrients);
+
+        // Firebase에 저장
+        const mealRef = await db.collection('users').doc(userId).collection('meals').add({
+            date,
+            mealType,
+            foods,
+            slowAgingScore: score,
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        res.status(200).send({ message: '식사 기록 및 점수 저장 완료', mealId: mealRef.id, slowAgingScore: score });
+    } catch (error) {
+        console.error('저속 노화 점수 저장 오류:', error);
+        res.status(500).send({ message: '점수 저장 실패', error });
+    }
+});
+
+// 일간 저속 노화 점수 계산
+exports.calculateDailyScore = functions.https.onRequest(async (req, res) => {
+    const { token, date } = req.body;
+
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const userId = decoded.userId;
+
+        const mealSnapshots = await db.collection('users').doc(userId).collection('meals')
+            .where('date', '==', date).get();
+
+        if (mealSnapshots.empty) {
+            return res.status(404).send({ message: '해당 날짜의 식사 기록이 없습니다.' });
+        }
+
+        let dailyScore = 0;
+        mealSnapshots.forEach(doc => dailyScore += doc.data().slowAgingScore);
+
+        await db.collection('users').doc(userId).collection('dailyScores').doc(date).set({
+            date,
+            dailyScore
+        });
+
+        res.status(200).send({ message: '일간 저속 노화 점수 계산 및 저장 완료', dailyScore });
+    } catch (error) {
+        console.error('일간 점수 계산 오류:', error);
+        res.status(500).send({ message: '일간 점수 계산 실패', error });
+    }
+});
