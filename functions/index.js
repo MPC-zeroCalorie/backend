@@ -150,8 +150,14 @@ exports.saveMealAndCalculateScore = functions.https.onRequest(async (req, res) =
 
             res.status(200).send({ message: '식사 기록 및 점수 저장 완료', mealId: mealRef.id, slowAgingScore: score });
         } catch (error) {
-            console.error('저속 노화 점수 저장 오류:', error);
-            res.status(500).send({ message: '점수 저장 실패', error });
+            // 에러 메시지와 스택 정보를 클라이언트에 전달
+            res.status(500).send({
+                message: '점수 저장 실패',
+                error: {
+                    message: error.message || 'Unknown error occurred',
+                    stack: error.stack, // 디버깅용 스택 정보 포함
+                },
+            });
         }
     });
 });
@@ -186,8 +192,14 @@ exports.calculateDailyScore = functions.https.onRequest(async (req, res) => {
 
             res.status(200).send({ message: '일간 저속 노화 점수 계산 및 저장 완료', dailyScore });
         } catch (error) {
-            console.error('일간 점수 계산 오류:', error);
-            res.status(500).send({ message: '일간 점수 계산 실패', error });
-        }
+            // 에러 메시지와 스택 정보를 클라이언트에 전달
+            res.status(500).send({
+              message: '일간 점수 계산 실패',
+                error: {
+                    message: error.message || 'Unknown error occurred',
+                    stack: error.stack, // 디버깅용 스택 정보 포함
+                },
+            });
+        }  
     });
 });
