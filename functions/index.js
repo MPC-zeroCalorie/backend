@@ -19,7 +19,7 @@ const calculateAgingScore = (nutrients) => {
     let score = 0;
     if (nutrients.vitaminC >= 50) score += 10;
     if (nutrients.protein >= 20) score += 20;
-    if (nutrients.totalDietaryFiber >= 10) score += 15;
+    if (nutrients.fiber >= 10) score += 15;
     if (nutrients.energy <= 500) score += 5;
     // 점수 범위를 0에서 100 사이로 제한
     return Math.min(Math.max(score, 0), 100);
@@ -27,14 +27,14 @@ const calculateAgingScore = (nutrients) => {
 
 // 끼니별 영양 성분 합산 함수
 const calculateDailyNutrients = (mealData) => {
-    const dailyNutrients = { vitaminC: 0, protein: 0, totalDietaryFiber: 0, energy: 0 };
+    const dailyNutrients = { vitaminC: 0, protein: 0, fiber: 0, energy: 0 }; // 변경됨
     for (const mealType in mealData) {
         if (mealData[mealType]?.foods) {
             mealData[mealType].foods.forEach((food) => {
-                dailyNutrients.vitaminC += food.vitaminC || 0;
-                dailyNutrients.protein += food.protein || 0;
-                dailyNutrients.totalDietaryFiber += food.totalDietaryFiber || 0;
-                dailyNutrients.energy += food.energy || 0;
+                dailyNutrients.vitaminC += food.nutritionInfo.vitaminC || 0;
+                dailyNutrients.protein += food.nutritionInfo.protein || 0;
+                dailyNutrients.fiber += food.nutritionInfo.fiber || 0; // 변경됨
+                dailyNutrients.energy += food.nutritionInfo.energy || 0;
             });
         }
     }
@@ -156,7 +156,7 @@ exports.updateUserInfo = functions.https.onRequest(async (req, res) => {
             res.status(200).send({ message: '회원 정보가 성공적으로 업데이트되었습니다.' });
         } catch (error) {
             console.error('회원 정보 수정 오류:', error);
-            res.status(500).send({ message: '회원 정보 수정 실패' });
+            res.status(500).send({ message: '회원 정보 수정 실패', error });
         }
     });
 });
@@ -180,7 +180,7 @@ exports.deleteUser = functions.https.onRequest(async (req, res) => {
             res.status(200).send({ message: '회원 및 연관 데이터가 성공적으로 삭제되었습니다.' });
         } catch (error) {
             console.error('회원 삭제 오류:', error);
-            res.status(500).send({ message: '회원 삭제 실패' });
+            res.status(500).send({ message: '회원 삭제 실패', error });
         }
     });
 });
@@ -272,7 +272,7 @@ exports.deleteMeal = functions.https.onRequest(async (req, res) => {
             res.status(200).send({ message: '식사 기록 삭제 및 일간 점수 재계산 성공' });
         } catch (error) {
             console.error('식사 기록 삭제 실패:', error);
-            res.status(500).send({ message: '식사 기록 삭제 실패' });
+            res.status(500).send({ message: '식사 기록 삭제 실패', error });
         }
     });
 });
@@ -311,15 +311,15 @@ exports.calculateDailyScore = functions.https.onRequest(async (req, res) => {
             });
         } catch (error) {
             console.error('일간 점수 계산 오류:', error);
-            res.status(500).send({ message: '일간 점수 계산 실패' });
+            res.status(500).send({ message: '일간 점수 계산 실패', error });
         }
     });
 });
 
-// 끼니 점수 계산만 수행 (저장 없음)
 exports.calculateMealScore = functions.https.onRequest(async (req, res) => {
     cors(req, res, async () => {
         try {
+            const decoded = verifyToken(req); // 추가됨
             const { foods } = req.body;
 
             if (!foods || !Array.isArray(foods)) {
@@ -337,7 +337,7 @@ exports.calculateMealScore = functions.https.onRequest(async (req, res) => {
             });
         } catch (error) {
             console.error('점수 계산 실패:', error);
-            res.status(500).send({ message: '점수 계산 실패', error });
+            res.status(500).send({ message: '점수 계산 실패', error: error.message });
         }
     });
 });
@@ -355,13 +355,13 @@ exports.saveMealAndCalculateDailyScore = functions.https.onRequest(async (req, r
             }
 
             // 식사 데이터를 처리하면서 영양 정보를 합산
-            const dailyNutrients = { vitaminC: 0, protein: 0, totalDietaryFiber: 0, energy: 0 };
+            const dailyNutrients = { vitaminC: 0, protein: 0, fiber: 0, energy: 0 };
 
             foods.forEach(food => {
                 const nutrition = food.nutritionInfo || {};
                 dailyNutrients.vitaminC += nutrition.vitaminC || 0;
                 dailyNutrients.protein += nutrition.protein || 0;
-                dailyNutrients.totalDietaryFiber += nutrition.totalDietaryFiber || 0;
+                dailyNutrients.fiber += nutrition.fiber || 0; // 변경됨
                 dailyNutrients.energy += nutrition.energy || 0;
             });
 
