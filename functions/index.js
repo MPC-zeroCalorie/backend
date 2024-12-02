@@ -342,7 +342,7 @@ exports.calculateMealScore = functions.https.onRequest(async (req, res) => {
     });
 });
 
-// 기존 saveMealAndCalculateScore 함수 사용
+// 기존 saveMealAndCalculateDailyScore 함수 수정
 exports.saveMealAndCalculateDailyScore = functions.https.onRequest(async (req, res) => {
     cors(req, res, async () => {
         try {
@@ -350,15 +350,31 @@ exports.saveMealAndCalculateDailyScore = functions.https.onRequest(async (req, r
             const userId = decoded.userId;
             const { date, mealType, foods } = req.body;
 
-            // 영양소 데이터 처리
-            const totalNutrients = calculateDailyNutrients({ [mealType]: { foods } });
-            const mealScore = calculateAgingScore(totalNutrients);
+            if (!Array.isArray(foods)) {
+                return res.status(400).send({ message: 'foods 배열이 필요합니다.' });
+            }
 
+            // 식사 데이터를 처리하면서 영양 정보를 합산
+            const dailyNutrients = { vitaminC: 0, protein: 0, totalDietaryFiber: 0, energy: 0 };
+
+            foods.forEach(food => {
+                const nutrition = food.nutritionInfo || {};
+                dailyNutrients.vitaminC += nutrition.vitaminC || 0;
+                dailyNutrients.protein += nutrition.protein || 0;
+                dailyNutrients.totalDietaryFiber += nutrition.totalDietaryFiber || 0;
+                dailyNutrients.energy += nutrition.energy || 0;
+            });
+
+            // 저속 노화 점수 계산
+            const mealScore = calculateAgingScore(dailyNutrients);
+
+            // Firestore에 저장
             const mealRef = db.collection('users').doc(userId).collection('meals').doc(date);
+
             await mealRef.set(
                 {
                     [mealType]: {
-                        foods, // 음식명 포함된 배열 저장
+                        foods, // food 배열 저장
                         slowAgingScore: mealScore,
                         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
                     },
@@ -366,15 +382,17 @@ exports.saveMealAndCalculateDailyScore = functions.https.onRequest(async (req, r
                 { merge: true }
             );
 
-            // 식사 기록이 추가되었으므로 일간 점수 재계산
+            // 식사 기록이 추가되었으므로 일간 점수 및 영양 성분 재계산
             const mealDoc = await mealRef.get();
-            const dailyNutrients = calculateDailyNutrients(mealDoc.data());
-            const dailySlowAgingScore = calculateAgingScore(dailyNutrients);
+            const allMealsData = mealDoc.data();
+
+            const totalDailyNutrients = calculateDailyNutrients(allMealsData);
+            const dailySlowAgingScore = calculateAgingScore(totalDailyNutrients);
 
             await mealRef.set(
                 {
                     dailySlowAgingScore,
-                    dailyNutrients,
+                    dailyNutrients: totalDailyNutrients,
                     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
                 },
                 { merge: true }
@@ -388,7 +406,7 @@ exports.saveMealAndCalculateDailyScore = functions.https.onRequest(async (req, r
             });
         } catch (error) {
             console.error('식사 기록 저장 실패:', error);
-            res.status(500).send({ message: '식사 기록 저장 실패' });
+            res.status(500).send({ message: '식사 기록 저장 실패', error });
         }
     });
 });
