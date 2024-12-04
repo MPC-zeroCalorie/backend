@@ -14,27 +14,141 @@ admin.initializeApp();
 const db = admin.firestore();
 const cors = require('cors')({ origin: true });
 
-// 저속 노화 점수 계산 함수
+// 끼니별 저속 노화 점수 계산 함수
 const calculateAgingScore = (nutrients) => {
+    // 끼니별 권장 섭취량 (한 끼 기준)
+    const recommendedValues = {
+        vitaminC: 30,  // mg
+        protein: 15,   // g
+        fiber: 8,      // g
+        energy: 667,   // kcal
+        calcium: 333,  // mg
+        vitaminD: 6.7, // µg
+        fat: 23,       // g
+        sugar: 17,     // g
+    };
+
     let score = 0;
-    if (nutrients.vitaminC >= 50) score += 10;
-    if (nutrients.protein >= 20) score += 20;
-    if (nutrients.fiber >= 10) score += 15;
-    if (nutrients.energy <= 500) score += 5;
-    // 점수 범위를 0에서 100 사이로 제한
-    return Math.min(Math.max(score, 0), 100);
+
+    // 각 영양소에 대한 점수 부여
+    // 각 영양소는 최대 10점으로, 총 80점 만점
+    for (const [key, recommendedValue] of Object.entries(recommendedValues)) {
+        if (nutrients[key] !== undefined) {
+            const intake = nutrients[key];
+
+            // 섭취 비율 계산
+            const ratio = intake / recommendedValue;
+
+            let nutrientScore = 0;
+
+            // 영양소별 점수 계산 로직
+            if (key === 'energy') {
+                // 에너지는 권장 섭취량 대비 90% ~ 110% 사이일 때 최대 점수
+                if (ratio >= 0.9 && ratio <= 1.1) {
+                    nutrientScore = 10;
+                } else {
+                    // 그 외에는 차등 감점
+                    nutrientScore = 10 - Math.min(Math.abs(ratio - 1) * 20, 10);
+                }
+            } else if (key === 'fat' || key === 'sugar') {
+                // 지방과 당은 권장 섭취량 이하일 때 최대 점수
+                if (ratio <= 1) {
+                    nutrientScore = 10;
+                } else {
+                    // 초과분에 따라 감점
+                    nutrientScore = 10 - Math.min((ratio - 1) * 20, 10);
+                }
+            } else {
+                // 기타 영양소는 권장 섭취량 대비 비율에 따라 점수 부여
+                nutrientScore = Math.min((intake / recommendedValue) * 10, 10);
+            }
+
+            score += nutrientScore;
+        }
+    }
+
+    // 총점수를 0에서 100 사이로 정규화 (80점 만점이므로 1.25를 곱함)
+    const normalizedScore = Math.round(Math.min(Math.max(score * 1.25, 0), 100));
+    return normalizedScore;
 };
+
+// 일간 저속 노화 점수 계산 함수
+const calculateDailyAgingScore = (nutrients) => {
+    // 하루 권장 섭취량 (단위: mg 또는 g)
+    const recommendedValues = {
+        vitaminC: 90,  // mg
+        protein: 50,   // g
+        fiber: 25,     // g
+        energy: 2000,  // kcal
+        calcium: 1000, // mg
+        vitaminD: 20,  // µg
+        fat: 70,       // g
+        sugar: 50,     // g
+    };
+
+    // 가중치 (영양소 중요도)
+    const weights = {
+        vitaminC: 15,
+        protein: 20,
+        fiber: 15,
+        energy: 10,
+        calcium: 10,
+        vitaminD: 10,
+        fat: 10,
+        sugar: 10,
+    };
+
+    let score = 0;
+    let totalWeight = 0;
+
+    // 각 영양소 점수 계산
+    for (const [key, recommendedValue] of Object.entries(recommendedValues)) {
+        if (nutrients[key] !== undefined) {
+            const intake = nutrients[key];
+            const weight = weights[key];
+            totalWeight += weight;
+
+            // 섭취 비율 계산
+            const ratio = intake / recommendedValue;
+
+            // 점수 계산
+            if (key === 'energy') {
+                // 에너지(칼로리)는 과잉 섭취 시 점수를 감점
+                score += weight * (1 - Math.abs(ratio - 1));
+            } else if (key === 'sugar' || key === 'fat') {
+                // 당, 지방은 과잉 섭취에 패널티 적용
+                score += weight * (1 - Math.max(0, ratio - 1));
+            } else {
+                // 일반 영양소는 적정 범위 내일 때 점수 최대
+                score += weight * Math.min(ratio, 1);
+            }
+        }
+    }
+
+    // 점수를 0~100 사이로 정규화
+    return Math.min(Math.max((score / totalWeight) * 100, 0), 100);
+};
+
+
 
 // 끼니별 영양 성분 합산 함수
 const calculateDailyNutrients = (mealData) => {
-    const dailyNutrients = { vitaminC: 0, protein: 0, fiber: 0, energy: 0 }; // 변경됨
+    const dailyNutrients = { 
+        vitaminC: 0, protein: 0, fiber: 0, energy: 0, 
+        calcium: 0, vitaminD: 0, fat: 0, sugar: 0 
+    };
+    
     for (const mealType in mealData) {
         if (mealData[mealType]?.foods) {
             mealData[mealType].foods.forEach((food) => {
                 dailyNutrients.vitaminC += food.nutritionInfo.vitaminC || 0;
                 dailyNutrients.protein += food.nutritionInfo.protein || 0;
-                dailyNutrients.fiber += food.nutritionInfo.fiber || 0; // 변경됨
+                dailyNutrients.fiber += food.nutritionInfo.fiber || 0;
                 dailyNutrients.energy += food.nutritionInfo.energy || 0;
+                dailyNutrients.calcium += food.nutritionInfo.calcium || 0;
+                dailyNutrients.vitaminD += food.nutritionInfo.vitaminD || 0;
+                dailyNutrients.fat += food.nutritionInfo.fat || 0;
+                dailyNutrients.sugar += food.nutritionInfo.sugar || 0;                
             });
         }
     }
@@ -355,14 +469,21 @@ exports.saveMealAndCalculateDailyScore = functions.https.onRequest(async (req, r
             }
 
             // 식사 데이터를 처리하면서 영양 정보를 합산
-            const dailyNutrients = { vitaminC: 0, protein: 0, fiber: 0, energy: 0 };
+            const dailyNutrients = { 
+                vitaminC: 0, protein: 0, fiber: 0, energy: 0, 
+                calcium: 0, vitaminD: 0, fat: 0, sugar: 0 };
 
             foods.forEach(food => {
                 const nutrition = food.nutritionInfo || {};
                 dailyNutrients.vitaminC += nutrition.vitaminC || 0;
                 dailyNutrients.protein += nutrition.protein || 0;
-                dailyNutrients.fiber += nutrition.fiber || 0; // 변경됨
+                dailyNutrients.fiber += nutrition.fiber || 0;
                 dailyNutrients.energy += nutrition.energy || 0;
+                dailyNutrients.calcium += nutrition.calcium || 0;
+                dailyNutrients.vitaminD += nutrition.vitaminD || 0;
+                dailyNutrients.fat += nutrition.fat || 0;
+                dailyNutrients.sugar += nutrition.sugar || 0;
+
             });
 
             // 저속 노화 점수 계산
@@ -387,7 +508,7 @@ exports.saveMealAndCalculateDailyScore = functions.https.onRequest(async (req, r
             const allMealsData = mealDoc.data();
 
             const totalDailyNutrients = calculateDailyNutrients(allMealsData);
-            const dailySlowAgingScore = calculateAgingScore(totalDailyNutrients);
+            const dailySlowAgingScore = calculateDailyAgingScore(totalDailyNutrients);
 
             await mealRef.set(
                 {
